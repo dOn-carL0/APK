@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Depo raf planı</title>
+<style>
+:root{--bg:#fff;--sf:#f4f3ee;--tx:#1f1e1c;--tx2:#5f5e5a;--bd:#d3d1c7;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1a1a18;--sf:#262624;--tx:#f1efe8;--tx2:#b4b2a9;--bd:#444441}}
+:root[data-theme="dark"]{--bg:#1a1a18;--sf:#262624;--tx:#f1efe8;--tx2:#b4b2a9;--bd:#444441}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0}h2{font-size:16px;margin:16px 0 2px}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+.pill{font-size:12px;padding:2px 10px;border-radius:99px;background:var(--sf);border:1px solid var(--bd)}
+button,input,select,textarea{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:6px 10px}
+button{cursor:pointer}button:hover{background:var(--sf)}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:12px;margin:12px 0}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:8px}
+.g label{display:flex;flex-direction:column;gap:2px;font-size:13px;color:var(--tx2)}
+textarea{width:100%;box-sizing:border-box;min-height:90px;margin-top:8px}
+svg{display:block;width:100%;height:auto}
+.th{font:500 14px system-ui,sans-serif;fill:var(--tx)}.ts{font:12px system-ui,sans-serif;fill:var(--tx2)}
+.rk{fill:var(--sf);stroke:var(--bd)}.leader{stroke:var(--tx2);stroke-dasharray:3 3;fill:none}
+.sec{cursor:pointer}.ed .sec{cursor:move}.ed svg{touch-action:none}.sec:focus{outline:none}
+.sub{color:var(--tx2);font-size:13px}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px;z-index:999}
+.modal-bg.open{display:flex}
+.modal-box{width:100%;max-width:360px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:14px;padding:16px;box-shadow:0 12px 32px rgba(0,0,0,.25)}
+.modal-box h3{margin:0 0 10px;font-size:17px}
+.modal-box label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--tx2);margin-bottom:10px}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.err{color:#c2185b;font-size:13px;min-height:18px;margin-top:4px}
+</style></head><body><main>
+<div class="top"><h1>Depo raf planı</h1><span id="role" class="pill"></span><span id="bar"></span><span id="sv" class="sub"></span></div>
+<div class="card"><input id="q" type="search" placeholder="İçerik ara: ürün adı, kod…" aria-label="İçerik ara" oninput="sr(this.value)" style="width:100%;box-sizing:border-box"><div id="res"></div></div><div id="plan"></div><p class="sub" id="nt"></p>
+<div id="cfg"></div><div id="elev"></div><div id="slot"></div>
+</main>
+
+<div id="loginModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <div class="modal-box">
+    <h3 id="loginTitle">Yönetici girişi</h3>
+    <form id="loginForm" onsubmit="doLogin(event)">
+      <label>Kullanıcı adı
+        <input id="admUser" type="text" autocomplete="username" required placeholder="Kullanıcı adı">
+      </label>
+      <label>Şifre
+        <input id="admPass" type="password" autocomplete="current-password" required placeholder="Şifre">
+      </label>
+      <div id="loginErr" class="err"></div>
+      <div class="modal-actions">
+        <button type="button" onclick="closeLogin()">İptal</button>
+        <button type="submit">Giriş yap</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="firebase-config.js"></script>
+<script>
+var ADMIN_USER='vizyon depo',ADMIN_PASS='vzynsilivri',AUTH_KEY='depo_raf_admin_v1',LOCAL_KEY='depo_raf_plan_v1';
+var DEP=76,L=44,$=function(i){return document.getElementById(i)};
+var D={sections:[
+{id:'s1',name:'Bölüm 1',x:20,y:40,v:1,bays:6,levels:3,cells:{}},
+{id:'s2',name:'Bölüm 2',x:150,y:40,v:1,bays:6,levels:3,cells:{}},
+{id:'s3',name:'Bölüm 3',x:226,y:40,v:1,bays:6,levels:3,cells:{}},
+{id:'s4',name:'Bölüm 4',x:356,y:40,v:1,bays:6,levels:3,cells:{}},
+{id:'s5',name:'Bölüm 5',x:20,y:354,v:0,bays:6,levels:3,cells:{}}]};
+var Q='',S=D.sections,selS=-1,selB=-1,selL=-1,edit=false,isAdmin=false,db=null,ref=null,ready=true,dirty=false,armed=false,drag=null,tm=null;
+
+function loadAuth(){try{isAdmin=localStorage.getItem(AUTH_KEY)==='1'}catch(e){isAdmin=false}}
+function openLogin(){$('loginErr').textContent='';$('admUser').value='';$('admPass').value='';$('loginModal').classList.add('open');setTimeout(function(){$('admUser').focus()},50)}
+function closeLogin(){$('loginModal').classList.remove('open');$('loginErr').textContent=''}
+function doLogin(ev){ev.preventDefault();
+ var u=$('admUser').value.trim().toLocaleLowerCase('tr'),p=$('admPass').value;
+ if(u===ADMIN_USER&&p===ADMIN_PASS){
+  isAdmin=true;try{localStorage.setItem(AUTH_KEY,'1')}catch(e){}
+  closeLogin();bar();slot();
+ }else{$('loginErr').textContent='Kullanıcı adı veya şifre hatalı.'}}
+function logout(){isAdmin=false;edit=false;try{localStorage.removeItem(AUTH_KEY)}catch(e){}bar();plan();cfg();slot()}
+
+function loadLocal(){try{var raw=localStorage.getItem(LOCAL_KEY);if(!raw)return;var nd=JSON.parse(raw);if(nd&&Array.isArray(nd.sections)){D=nd;S=D.sections}}catch(e){}}
+function saveLocal(){try{localStorage.setItem(LOCAL_KEY,JSON.stringify(D));return true}catch(e){return false}}
+
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function dims(s){return s.v?{w:DEP,h:L*s.bays}:{w:L*s.bays,h:DEP}}
+function txt(s,b,l){return String((s.cells||{})[b+'-'+l]||'').trim()}
+function clamp(s){var d=dims(s);s.x=Math.max(4,Math.min(676-d.w,s.x));s.y=Math.max(30,s.y)}
+function save(){dirty=true;$('sv').textContent='Kaydediliyor…';clearTimeout(tm);tm=setTimeout(async function(){
+ var okLocal=saveLocal();
+ if(ref){try{await ref.set(JSON.parse(JSON.stringify(D)));dirty=false;$('sv').textContent='Kaydedildi';return}catch(e){}}
+ dirty=false;$('sv').textContent=okLocal?'Cihaza kaydedildi':'Kaydedilemedi'},400)}
+function bar(){$('role').textContent=isAdmin?'Yönetici ('+ADMIN_USER+')':'Görüntüleyici';
+ var h='';
+ if(isAdmin){
+  h+='<button onclick="tg()"'+(ready?'':' disabled')+'>'+(edit?'Düzen modunu kapat':'Düzen modu')+'</button> ';
+  if(edit)h+='<button onclick="add()">+ Bölüm ekle</button> ';
+  h+='<button onclick="logout()">Çıkış yap</button>';
+ }else{
+  h+='<button onclick="openLogin()">Yönetici girişi</button>';
+ }
+ $('bar').innerHTML=h;
+ $('nt').textContent='Hücredeki büyük sayı, içerik yazılmış kat sayısını gösterir. Küçük numara göz sırasıdır: dikey bölümlerde alttan, yatay hatta soldan başlar.'+(edit?' Bölümleri sürükleyerek taşıyabilirsin.':'')}
+function plan(){var mb=300;S.forEach(function(s){mb=Math.max(mb,s.y+dims(s).h+30)});
+ var h='<svg viewBox="0 0 680 '+mb+'" role="img" aria-label="Kuş bakışı depo planı">';
+ S.forEach(function(s,i){var d=dims(s);
+  h+='<g class="sec" tabindex="0" role="button" aria-label="'+esc(s.name)+'" onpointerdown="dn(event,'+i+')" onkeydown="if(event.key==='Enter')pick('+i+')">';
+  h+='<text class="th" x="'+(s.x+d.w/2)+'" y="'+(s.y-10)+'" text-anchor="middle">'+esc(s.name)+'</text><rect class="rk" x="'+s.x+'" y="'+s.y+'" width="'+d.w+'" height="'+d.h+'"/>';
+  for(var b=0;b<s.bays;b++){var c=0,mh=false;for(var l=0;l<s.levels;l++){if(txt(s,b,l))c++;if(hit(s,b,l))mh=true}
+   var r=c/s.levels,f=r==1?'#D8B27A':r>=.5?'#E6CDA3':r>0?'#F0E2C8':'none';
+   var x=s.v?s.x+4:s.x+b*L+3,y=s.v?s.y+(s.bays-1-b)*L+3:s.y+4,w=s.v?d.w-8:L-6,hh=s.v?L-6:d.h-8,on=(i===selS&&b===selB);
+   h+='<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+hh+'" rx="2" fill="'+f+'" stroke="'+(on?'#E8782A':mh?'#C2185B':'#8C6A3A')+'" stroke-width="'+(on||mh?2.5:.5)+'"/><text class="ts" x="'+(x+w/2)+'" y="'+(y+hh/2)+'" text-anchor="middle" dominant-baseline="central"'+(c?' style="fill:#5A4220"':'')+'>'+(c?c+'/'+s.levels:'Boş')+'</text><text class="ts" x="'+(x+5)+'" y="'+(y+11)+'" dominant-baseline="central" style="font-size:11px">'+(b+1)+'</text>';}
+  for(var k=0;k<=s.bays;k++){if(s.v){var uy=s.y+k*L-3;h+='<rect x="'+(s.x-3)+'" y="'+uy+'" width="6" height="6" fill="#185FA5"/><rect x="'+(s.x+d.w-3)+'" y="'+uy+'" width="6" height="6" fill="#185FA5"/>'}
+   else{var ux=s.x+k*L-3;h+='<rect x="'+ux+'" y="'+(s.y-3)+'" width="6" height="6" fill="#185FA5"/><rect x="'+ux+'" y="'+(s.y+d.h-3)+'" width="6" height="6" fill="#185FA5"/>'}}
+  h+='</g>'});
+ if(selS>=0&&S[selS]){var q=S[selS],e=dims(q);h+='<rect x="'+q.x+'" y="'+q.y+'" width="'+e.w+'" height="'+e.h+'" fill="none" stroke="#E8782A" stroke-width="2.5" pointer-events="none"/>'}
+ $('plan').innerHTML=h+'</svg>';$('plan').className=edit?'ed':''}
+function pal(bx,Y,full){var g='<g transform="translate('+bx+','+Y+')">';
+ if(!full)return g+'<rect x="12" y="-62" width="106" height="52" rx="2" fill="none" stroke="#888780" stroke-width="1.5" stroke-dasharray="6 4"/></g>';
+ return g+'<rect x="10" y="-10" width="110" height="4" fill="#B98A4E"/><path d="M10 -6h14v6h-14zM58 -6h14v6h-14zM106 -6h14v6h-14z" fill="#B98A4E"/><rect x="12" y="-62" width="106" height="52" rx="2" fill="#D8B27A" stroke="#8C6A3A" stroke-width="1.5"/><path d="M65 -62v52M12 -36h106" stroke="#8C6A3A" stroke-width="1.5" fill="none"/></g>'}
+function elev(){var e=$('elev');if(selS<0||!S[selS]){e.innerHTML='<div class="card sub">Ön görünüş için bir bölüme tıkla.</div>';return}
+ var s=S[selS],n=s.bays,lv=s.levels,sc=Math.min(1,520/(140*n+10)),F=140+90*(lv-1),Hh=22+(F+10)*sc+34,wr=(140*n+10)*sc;
+ function Y(l){return 140+90*(lv-1-l)}
+ var h='<h2>'+esc(s.name)+' ön görünüş</h2><div class="sub">'+n+' göz, '+lv+' kat. Bir palet yerine tıklayınca içeriği görürsün. Kesikli çizgi boş yeri gösterir.</div>';
+ h+='<svg viewBox="0 0 680 '+Hh+'" role="img" aria-label="Ön görünüş"><g transform="translate(18,22) scale('+sc+')"><rect x="-14" y="'+F+'" width="'+(140*n+38)+'" height="8" fill="#B4B2A9"/>';
+ for(var i=0;i<=n;i++)h+='<rect x="'+(140*i)+'" y="60" width="10" height="'+(F-60)+'" fill="#185FA5"/><rect x="'+(140*i-6)+'" y="'+(F-4)+'" width="22" height="4" fill="#5F5E5A"/>';
+ for(var l=1;l<lv;l++)h+='<rect x="0" y="'+Y(l)+'" width="'+(140*n+10)+'" height="10" rx="1" fill="#E8782A"/>';
+ for(l=0;l<lv;l++)for(var b=0;b<n;b++){var t=txt(s,b,l);h+=pal(140*b+10,Y(l),!!t);
+  h+='<rect x="'+(140*b+10)+'" y="'+(Y(l)-80)+'" width="130" height="80" fill="transparent" style="cursor:pointer" onclick="pickSlot('+b+','+l+')"><title>'+esc(t||'Boş')+'</title></rect>';
+  if(hit(s,b,l))h+='<rect x="'+(140*b+8)+'" y="'+(Y(l)-66)+'" width="114" height="60" rx="3" fill="none" stroke="#C2185B" stroke-width="'+(3/sc)+'" pointer-events="none"/>';
+  if(b===selB&&l===selL)h+='<rect x="'+(140*b+8)+'" y="'+(Y(l)-66)+'" width="114" height="60" rx="3" fill="none" stroke="#E8782A" stroke-width="'+(3/sc)+'" pointer-events="none"/>'}
+ h+='</g>';
+ for(b=0;b<n;b++)h+='<text class="ts" x="'+(18+(140*b+75)*sc)+'" y="'+(22+(F+10)*sc+18)+'" text-anchor="middle">'+(n>6?(b+1):'Göz '+(b+1))+'</text>';
+ for(l=0;l<lv;l++){var ly=22+(Y(l)-36)*sc,lx=18+wr+2;h+='<line class="leader" x1="'+lx+'" y1="'+ly+'" x2="'+(lx+16)+'" y2="'+ly+'"/><text class="ts" x="'+(lx+22)+'" y="'+(ly+4)+'">'+(l===0?'Kat 1 (zemin)':'Kat '+(l+1))+'</text>'}
+ e.innerHTML=h+'</svg>'}
+function cfg(){var c=$('cfg');if(!edit||!isAdmin){c.innerHTML='';return}if(selS<0||!S[selS]){c.innerHTML='<div class="card sub">Bir bölüme tıkla: adını, yönünü, göz ve kat sayısını burada değiştirebilirsin.</div>';return}var s=S[selS];
+ c.innerHTML='<div class="card"><b>Bölüm ayarları</b><div class="g"><label>Bölüm adı<input value="'+esc(s.name)+'" maxlength="30" oninput="nm(this.value)"></label>'+
+ '<label>Yön<select onchange="setV(this.value)"><option value="1"'+(s.v?' selected':'')+'>Dikey</option><option value="0"'+(s.v?'':' selected')+'>Yatay</option></select></label>'+
+ '<label>Göz sayısı (1-12)<input type="number" min="1" max="12" value="'+s.bays+'" onchange="setB(this.value)"></label>'+
+ '<label>Kat sayısı (1-6)<input type="number" min="1" max="6" value="'+s.levels+'" onchange="setLv(this.value)"></label></div>'+
+ '<p><button onclick="del()">'+(armed?'Emin misin? Tekrar tıkla':'Bölümü sil')+'</button></p></div>'}
+function slot(){var e=$('slot');if(selS<0||!S[selS]||selB<0||selB>=S[selS].bays||selL>=S[selS].levels){e.innerHTML='';return}
+ var s=S[selS],t=txt(s,selB,selL);
+ e.innerHTML='<div class="card"><b>'+esc(s.name)+' · Göz '+(selB+1)+' · Kat '+(selL+1)+'</b>'+(isAdmin?
+ '<textarea maxlength="500" placeholder="Bu palet yerinin içeriğini yaz: ürün, adet, kod…" oninput="setTxt(this.value)">'+esc((s.cells||{})[selB+'-'+selL]||'')+'</textarea>':
+ '<div style="white-space:pre-wrap;margin-top:6px">'+(t?esc(t):'<span class="sub">Boş</span>')+'</div>')+'</div>'}
+function hit(s,b,l){return Q&&txt(s,b,l).toLocaleLowerCase('tr').indexOf(Q)>=0}
+function sr(v){Q=v.trim().toLocaleLowerCase('tr');res();plan();elev()}
+function res(){var r=$('res');if(!Q){r.innerHTML='';return}var h='',n=0;
+ S.forEach(function(s,i){for(var b=0;b<s.bays;b++)for(var l=0;l<s.levels;l++)if(hit(s,b,l)){n++;if(n<=30)h+='<button style="display:block;width:100%;text-align:left;margin-top:6px" onclick="go('+i+','+b+','+l+')"><b>'+esc(s.name)+' · Göz '+(b+1)+' · Kat '+(l+1)+'</b><br><span class="sub">'+esc(txt(s,b,l).slice(0,80))+'</span></button>'}});
+ r.innerHTML=n?'<div class="sub" style="margin-top:8px">'+n+' sonuç'+(n>30?' (ilk 30 gösteriliyor)':'')+'</div>'+h:'<div class="sub" style="margin-top:8px">Sonuç bulunamadı.</div>'}
+function go(i,b,l){selS=i;selB=b;selL=l;plan();elev();cfg();slot();$('elev').scrollIntoView({behavior:'smooth',block:'start'})}
+function pick(i){selS=i;selB=-1;selL=-1;plan();elev();cfg();slot()}
+function pickSlot(b,l){selB=b;selL=l;plan();elev();slot()}
+function tg(){if(!isAdmin)return;edit=!edit;bar();plan();cfg()}
+function dn(e,i){if(!edit||!isAdmin){pick(i);return}e.preventDefault();var r=document.querySelector('#plan svg').getBoundingClientRect();
+ drag={i:i,sx:e.clientX,sy:e.clientY,ox:S[i].x,oy:S[i].y,k:680/r.width,m:false};
+ if(selS!==i){selS=i;selB=-1;selL=-1}plan();addEventListener('pointermove',mv);addEventListener('pointerup',up)}
+function mv(e){var s=S[drag.i],d=dims(s),dx=(e.clientX-drag.sx)*drag.k,dy=(e.clientY-drag.sy)*drag.k;
+ if(Math.hypot(dx,dy)>4)drag.m=true;
+ if(drag.m){s.x=Math.max(4,Math.min(676-d.w,Math.round((drag.ox+dx)/10)*10));s.y=Math.max(30,Math.round((drag.oy+dy)/10)*10);plan()}}
+function up(){removeEventListener('pointermove',mv);removeEventListener('pointerup',up);var m=drag&&drag.m;drag=null;if(m)save();plan();elev();cfg();slot()}
+function nm(v){if(!isAdmin)return;S[selS].name=v.slice(0,30);plan();elev();save()}
+function setB(v){if(!isAdmin)return;var s=S[selS];s.bays=Math.max(1,Math.min(12,Math.round(+v)||1));clamp(s);plan();elev();slot();save()}
+function setLv(v){if(!isAdmin)return;var s=S[selS];s.levels=Math.max(1,Math.min(6,Math.round(+v)||1));plan();elev();slot();save()}
+function setV(v){if(!isAdmin)return;var s=S[selS];s.v=+v;clamp(s);plan();elev();save()}
+function setTxt(v){if(!isAdmin)return;var s=S[selS],k=selB+'-'+selL;s.cells=s.cells||{};if(v.trim())s.cells[k]=v;else delete s.cells[k];res();plan();elev();save()}
+function add(){if(!isAdmin)return;var mr=0,mb=0;S.forEach(function(s){var d=dims(s);mr=Math.max(mr,s.x+d.w);mb=Math.max(mb,s.y+d.h)});
+ var nx=mr+30,ny=40;if(nx+DEP>676){nx=20;ny=mb+40}
+ S.push({id:'s'+Date.now().toString(36),name:'Bölüm '+(S.length+1),x:nx,y:ny,v:1,bays:6,levels:3,cells:{}});
+ pick(S.length-1);save()}
+function del(){if(!isAdmin)return;if(!armed){armed=true;cfg();setTimeout(function(){armed=false;cfg()},3000);return}
+ armed=false;S.splice(selS,1);res();selS=-1;selB=-1;selL=-1;plan();elev();cfg();slot();save()}
+
+loadAuth();loadLocal();bar();plan();elev();cfg();slot();
+(async function(){
+ try{if(window.claude&&typeof claude.use==='function'){var u=await claude.use('user');if(u&&typeof u.canEdit==='function')isAdmin=await u.canEdit()}}catch(e){}
+ try{if(window.claude&&typeof claude.use==='function')db=await claude.use('db')}catch(e){}
+ if(db){ref=db.doc('depo/main');var t=setTimeout(function(){ready=true;bar()},4000);
+  ref.onSnapshot(function(sn){clearTimeout(t);ready=true;
+   if(sn.exists&&!dirty){var nd=JSON.parse(JSON.stringify(sn.data()));
+    if(Array.isArray(nd.sections)&&JSON.stringify(nd)!==JSON.stringify(D)){D=nd;S=D.sections;saveLocal();if(selS>=S.length){selS=-1;selB=-1;selL=-1}
+     res();plan();elev();cfg();if(!document.activeElement||document.activeElement.tagName!=='TEXTAREA')slot()}}
+   bar()},function(){ready=true;bar()})}
+ else{ready=true;if(localStorage.getItem(LOCAL_KEY))$('sv').textContent='Cihaz kaydı yüklendi'}
+ bar();plan();elev();cfg();slot()})();
+</script></body></html>
